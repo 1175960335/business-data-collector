@@ -1,0 +1,26 @@
+# Runtime dependencies, pinned.
+#
+# PyYAML is only needed for .yaml configs; .toml and .json configs run on the
+# standard library alone.
+#
+# Stage D adds the two mature libraries the task book asks for:
+#   phonenumbers - Google's libphonenumber port, for country context / E.164 /
+#                  extension parsing. Hand-rolled phone regexes were explicitly
+#                  rejected by the task book ("成熟号码库").
+#   dnspython    - MX / null-MX / DNS-error lookups for email domain checks.
+#                  The standard library has no DNS resolver, so shelling out to
+#                  nslookup would be the only alternative, and that is not a
+#                  library.
+#
+#
+# Stage F adds:
+#   openpyxl    - the XLSX deliverable (records / field evidence /
+#                 failures-and-conflicts sheets). CSV and JSONL stay on the
+#                 standard library, so a run without XLSX needs no new package.
+#
+# Everything else the collector uses (sqlite3, subprocess, json, csv, hashlib,
+# argparse, urllib, html.parser, http.server) ships with Python.
+PyYAML==6.0.2
+phonenumbers==9.0.41
+dnspython==2.9.0
+openpyxl==3.1.5

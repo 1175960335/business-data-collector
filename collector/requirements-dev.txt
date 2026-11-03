@@ -1,0 +1,8 @@
+# Optional development dependency.
+#
+# The test suite is written against the standard library's unittest, so it runs
+# with no extra packages:
+#     .venv/Scripts/python.exe -m unittest discover -s tests -t .
+#
+# pytest is listed only for people who prefer its output.
+pytest>=8.0

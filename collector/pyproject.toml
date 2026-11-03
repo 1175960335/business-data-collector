@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "osint-collector"
+version = "0.2.0"
+description = "Python orchestration, evidence store and export layer over the Go Maps scraper"
+readme = "README.md"
+authors = [{name = "Loop"}]
+requires-python = ">=3.11"
+dependencies = [
+    "PyYAML==6.0.2",
+    "phonenumbers==9.0.41",
+    "dnspython==2.9.0",
+    "openpyxl==3.1.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+collector = "collector.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["collector*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,355 @@
+openapi: 3.0.3
+info:
+  title: Google Maps Scraper API
+  version: 1.0.0
+  description: |
+    API for managing job google maps scraping tasks.
+
+    ## Time units
+
+    `max_time` is expressed in **seconds** on input and returned in
+    **nanoseconds** on output. That asymmetry is historical and is kept so
+    existing clients are not silently broken: changing the output unit would
+    turn a one hour budget into one second for anyone already reading it.
+
+    New clients should read and send `max_time_seconds`, which is unambiguous
+    in both directions. Supplying both `max_time` and `max_time_seconds` on
+    create is allowed only when the two agree.
+
+    ## Legacy response format
+
+    The job endpoints returned upper-case keys (`ID`, `Name`, `Date`,
+    `Status`, `Data`) before this document was made accurate. That shape is
+    still available for existing clients by sending `?format=legacy` or an
+    `Accept: application/vnd.gms.legacy+json` header. It never includes
+    `max_time_seconds` and its `data` object is byte-identical to the old
+    response.
+
+paths:
+  /api/v1/jobs:
+    post:
+      summary: Create a new job scraping task
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X POST "http://localhost:8080/api/v1/jobs" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "name": "Coffee shops Ilion",
+                "keywords": ["coffee in ilion"],
+                "lang": "el",
+                "zoom": 15,
+                "depth": 1,
+                "max_time": 3600
+              }'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiScrapeRequest'
+      responses:
+        '201':
+          description: Job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiScrapeResponse'
+        '422':
+          description: |
+            Unprocessable entity. Returned for an invalid body, a missing
+            required field, `max_time` and `max_time_seconds` disagreeing, a
+            negative budget, or a budget above 2592000 seconds (30 days).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+    get:
+      summary: Get all jobs
+      description: |
+        Returns jobs in the documented lower-case representation. Add
+        `format=legacy` to receive the pre-fix upper-case representation.
+      parameters:
+        - name: format
+          in: query
+          required: false
+          description: Set to `legacy` to receive the pre-fix upper-case keys.
+          schema:
+            type: string
+            enum: [legacy]
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X GET "http://localhost:8080/api/v1/jobs"
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Job'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/v1/jobs/{id}:
+    get:
+      summary: Get a specific job
+      description: |
+        Returns the job in the documented lower-case representation. Add
+        `format=legacy` to receive the pre-fix upper-case representation.
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X GET "http://localhost:8080/api/v1/jobs/6f0c1af8-3c4e-4742-84bb-590938ae8930"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: false
+          description: Set to `legacy` to receive the pre-fix upper-case keys.
+          schema:
+            type: string
+            enum: [legacy]
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '422':
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+    delete:
+      summary: Delete a specific job
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X DELETE "http://localhost:8080/api/v1/jobs/455a6a00-cefb-4a9d-9e7d-791f01873700"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job deleted successfully
+        '422':
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /api/v1/jobs/{id}/download:
+    get:
+      summary: Download job results as CSV
+      x-code-samples:
+          source: |
+            curl -X GET "http://localhost:8080/api/v1/jobs/18eafda3-53a9-4970-ac96-8f8dfc7011c3/download" --output results.csv
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found
+        '422':
+          description: Invalid ID
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        code:
+          type: integer
+        message:
+          type: string
+
+    ApiScrapeRequest:
+      type: object
+      description: |
+        Validated server-side. A request is rejected with 422 when: `name`,
+        `keywords`, `lang` or `depth` is missing; `lang` is not two characters;
+        no scrape budget is supplied through either `max_time` or
+        `max_time_seconds`; `fast_mode` is true without `lat` and `lon`; the
+        budget is negative or above 2592000 seconds; or the two budget fields
+        disagree.
+      properties:
+        name:
+          type: string
+        keywords:
+          type: array
+          items:
+            type: string
+        lang:
+          type: string
+          description: Two-letter language code.
+        zoom:
+          type: integer
+        lat:
+          type: string
+          description: Required when fast_mode is true.
+        lon:
+          type: string
+          description: Required when fast_mode is true.
+        fast_mode:
+          type: boolean
+        radius:
+          type: integer
+        depth:
+          type: integer
+        email:
+          type: boolean
+        extra_reviews:
+          type: boolean
+          description: |
+            Also scrape the extended review set for each place. Previously
+            accepted and stored but absent from this document.
+        max_time:
+          type: integer
+          description: |
+            Scrape budget in **seconds**. Returned as nanoseconds; see
+            `max_time_seconds` for an unambiguous alternative.
+        max_time_seconds:
+          type: integer
+          description: |
+            Scrape budget in seconds. Same meaning as `max_time`, but the unit
+            is explicit. If both are sent they must agree, otherwise the
+            request is rejected with 422.
+        proxies:
+          type: array
+          items:
+            type: string
+
+    ApiScrapeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        date:
+          type: string
+          format: date-time
+        status:
+          type: string
+          description: |
+            One of: pending, working, ok, partial, failed, cancelled,
+            interrupted.
+
+            `ok` means the run finished cleanly; it does not imply that records
+            were produced, because a legitimate query with no matches is still
+            `ok`. `partial` means the run stopped early but the records written
+            so far are usable. The rest are terminal failures.
+          enum: [pending, working, ok, partial, failed, cancelled, interrupted]
+        data:
+          $ref: '#/components/schemas/JobData'
+        reason:
+          type: string
+          description: |
+            Why the job ended in a non-ok terminal state. Absent for a clean
+            run.
+        result_count:
+          type: integer
+          description: |
+            Number of data records written to the result file. An incomplete
+            trailing record is not counted.
+
+    JobData:
+      type: object
+      properties:
+        keywords:
+          type: array
+          items:
+            type: string
+        lang:
+          type: string
+        zoom:
+          type: integer
+        lat:
+          type: string
+        lon:
+          type: string
+        fast_mode:
+          type: boolean
+        radius:
+          type: integer
+        depth:
+          type: integer
+        email:
+          type: boolean
+        extra_reviews:
+          type: boolean
+          description: |
+            Also scrape the extended review set for each place. Previously
+            accepted and stored but absent from this document.
+        max_time:
+          type: integer
+          description: |
+            Scrape budget in **nanoseconds**, for example 180000000000 for
+            three minutes. Kept in this unit for backward compatibility; prefer
+            `max_time_seconds`.
+        max_time_seconds:
+          type: integer
+          description: |
+            The same budget in seconds, for example 180. This field is present
+            in the canonical representation only; the `format=legacy` response
+            omits it.
+        proxies:
+          type: array
+          items:
+            type: string
+

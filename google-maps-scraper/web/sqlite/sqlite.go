@@ -1,0 +1,323 @@
+package sqlite
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"time"
+
+	_ "modernc.org/sqlite" // sqlite driver
+
+	"github.com/gosom/google-maps-scraper/web"
+)
+
+type repo struct {
+	db *sql.DB
+}
+
+// Store is a job repository backed by a database handle that must be released.
+// Callers are expected to Close it on shutdown: the database runs in WAL mode,
+// so leaving it open keeps the main file and its -wal/-shm sidecars locked.
+// On Windows that makes the data directory impossible to remove or archive.
+type Store interface {
+	web.JobRepository
+	Close() error
+}
+
+func New(path string) (Store, error) {
+	db, err := initDatabase(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return &repo{db: db}, nil
+}
+
+// Close releases the underlying database handle and checkpoints the WAL.
+func (repo *repo) Close() error {
+	return repo.db.Close()
+}
+
+// jobColumns lists the columns explicitly. `SELECT *` would break every scan
+// the moment a column is added by a migration, so the order is pinned here and
+// shared by Get and Select.
+const jobColumns = `id, name, status, data, created_at, updated_at, reason, result_count`
+
+func (repo *repo) Get(ctx context.Context, id string) (web.Job, error) {
+	q := `SELECT ` + jobColumns + ` FROM jobs WHERE id = ?`
+
+	row := repo.db.QueryRowContext(ctx, q, id)
+
+	return rowToJob(row)
+}
+
+func (repo *repo) Create(ctx context.Context, job *web.Job) error {
+	item, err := jobToRow(job)
+	if err != nil {
+		return err
+	}
+
+	const q = `INSERT INTO jobs (id, name, status, data, created_at, updated_at, reason, result_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+
+	_, err = repo.db.ExecContext(ctx, q,
+		item.ID, item.Name, item.Status, item.Data, item.CreatedAt, item.UpdatedAt, item.Reason, item.ResultCount)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (repo *repo) Delete(ctx context.Context, id string) error {
+	const q = `DELETE FROM jobs WHERE id = ?`
+
+	_, err := repo.db.ExecContext(ctx, q, id)
+
+	return err
+}
+
+func (repo *repo) Select(ctx context.Context, params web.SelectParams) ([]web.Job, error) {
+	q := `SELECT ` + jobColumns + ` FROM jobs`
+
+	var args []any
+
+	if params.Status != "" {
+		q += ` WHERE status = ?`
+
+		args = append(args, params.Status)
+	}
+
+	q += " ORDER BY created_at DESC, id DESC"
+
+	if params.Limit > 0 {
+		q += " LIMIT ?"
+
+		args = append(args, params.Limit)
+	}
+
+	if params.Offset > 0 {
+		if params.Limit <= 0 {
+			q += " LIMIT -1"
+		}
+
+		q += " OFFSET ?"
+
+		args = append(args, params.Offset)
+	}
+
+	rows, err := repo.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+
+	var ans []web.Job
+
+	for rows.Next() {
+		job, err := rowToJob(rows)
+		if err != nil {
+			return nil, err
+		}
+
+		ans = append(ans, job)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return ans, nil
+}
+
+func (repo *repo) Count(ctx context.Context, params web.SelectParams) (int, error) {
+	q := `SELECT COUNT(*) from jobs`
+
+	var args []any
+
+	if params.Status != "" {
+		q += ` WHERE status = ?`
+
+		args = append(args, params.Status)
+	}
+
+	var count int
+
+	err := repo.db.QueryRowContext(ctx, q, args...).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
+
+func (repo *repo) Update(ctx context.Context, job *web.Job) error {
+	item, err := jobToRow(job)
+	if err != nil {
+		return err
+	}
+
+	const q = `UPDATE jobs SET name = ?, status = ?, data = ?, updated_at = ?, reason = ?, result_count = ? WHERE id = ?`
+
+	_, err = repo.db.ExecContext(ctx, q,
+		item.Name, item.Status, item.Data, item.UpdatedAt, item.Reason, item.ResultCount, item.ID)
+
+	return err
+}
+
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func rowToJob(row scannable) (web.Job, error) {
+	var j job
+
+	err := row.Scan(&j.ID, &j.Name, &j.Status, &j.Data, &j.CreatedAt, &j.UpdatedAt, &j.Reason, &j.ResultCount)
+	if err != nil {
+		return web.Job{}, err
+	}
+
+	ans := web.Job{
+		ID:          j.ID,
+		Name:        j.Name,
+		Status:      j.Status,
+		Date:        time.Unix(j.CreatedAt, 0).UTC(),
+		Reason:      j.Reason,
+		ResultCount: j.ResultCount,
+	}
+
+	err = json.Unmarshal([]byte(j.Data), &ans.Data)
+	if err != nil {
+		return web.Job{}, err
+	}
+
+	return ans, nil
+}
+
+func jobToRow(item *web.Job) (job, error) {
+	data, err := json.Marshal(item.Data)
+	if err != nil {
+		return job{}, err
+	}
+
+	return job{
+		ID:          item.ID,
+		Name:        item.Name,
+		Status:      item.Status,
+		Data:        string(data),
+		CreatedAt:   item.Date.Unix(),
+		UpdatedAt:   time.Now().UTC().Unix(),
+		Reason:      item.Reason,
+		ResultCount: item.ResultCount,
+	}, nil
+}
+
+type job struct {
+	ID          string
+	Name        string
+	Status      string
+	Data        string
+	CreatedAt   int64
+	UpdatedAt   int64
+	Reason      string
+	ResultCount int
+}
+
+func initDatabase(path string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(30 * time.Minute)
+
+	_, err = db.Exec("PRAGMA busy_timeout = 5000")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("PRAGMA journal_mode=WAL")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("PRAGMA synchronous=NORMAL")
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec("PRAGMA cache_size=1000")
+	if err != nil {
+		return nil, err
+	}
+
+	err = db.Ping()
+	if err != nil {
+		return nil, err
+	}
+
+	return db, createSchema(db)
+}
+
+func createSchema(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS jobs (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			status TEXT NOT NULL,
+			data TEXT NOT NULL,
+			created_at INT NOT NULL,
+			updated_at INT NOT NULL,
+			reason TEXT NOT NULL DEFAULT '',
+			result_count INT NOT NULL DEFAULT 0
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_jobs_created_at_id
+			ON jobs (created_at DESC, id DESC);
+	`)
+	if err != nil {
+		return err
+	}
+
+	// Existing databases predate reason/result_count. CREATE TABLE IF NOT
+	// EXISTS does not add columns to an existing table, so migrate explicitly.
+	if err := ensureColumn(db, "jobs", "reason", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+
+	return ensureColumn(db, "jobs", "result_count", "INT NOT NULL DEFAULT 0")
+}
+
+// ensureColumn adds a column when it is missing. It is a no-op when the column
+// already exists, which keeps startup idempotent across schema versions.
+func ensureColumn(db *sql.DB, table, column, definition string) error {
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+
+		if name == column {
+			return nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+
+	return err
+}

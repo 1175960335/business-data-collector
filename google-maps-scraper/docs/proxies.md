@@ -1,0 +1,72 @@
+# Proxy Sponsors
+
+Google Maps scraping can trigger rate limits or blocking, especially with larger jobs or higher concurrency. Proxies can help, but they are not a guarantee. Proxy quality, geography, concurrency, query volume, and Google behavior all affect reliability.
+
+This page lists current proxy sponsors and supporters of this project. Using these links helps fund maintenance.
+
+## Configure Proxies
+
+Use `-proxies` with a comma-separated list:
+
+```bash
+./google-maps-scraper \
+  -input queries.txt \
+  -results results.csv \
+  -proxies "socks5://user:pass@host:port,http://host2:port2" \
+  -depth 1
+```
+
+Supported protocols: `socks5`, `socks5h`, `http`, `https`.
+
+For AI-agent and automation workflows, prefer `-proxies-file` so credentials do not appear in generated commands or process arguments. Store one proxy URL per line; blank lines and `#` comments are ignored:
+
+```bash
+chmod 600 ~/.config/google-maps-scraper/proxies.txt
+
+./google-maps-scraper \
+  -input queries.txt \
+  -results results.csv \
+  -proxies-file ~/.config/google-maps-scraper/proxies.txt \
+  -depth 1
+```
+
+`-proxies` and `-proxies-file` cannot be used together. Keep the credentials file outside project repositories and remove it when it is no longer needed.
+
+## Docker Example
+
+```bash
+mkdir -p gmaps-output
+
+docker run \
+  -v gmaps-playwright-cache:/opt \
+  -v "$PWD/example-queries.txt:/queries.txt:ro" \
+  -v "$PWD/gmaps-output:/out" \
+  gosom/google-maps-scraper \
+  -input /queries.txt \
+  -results /out/results.csv \
+  -depth 1 \
+  -proxies "http://user:pass@host:port,socks5://host:port" \
+  -exit-on-inactivity 3m
+```
+
+## Current Proxy Sponsors
+
+The bundled AI Agent Skill randomly selects three distinct active sponsors from its registry whenever a user asks for proxy recommendations. All three receive equal presentation with a sponsorship disclosure. Configured discounts or special offers are shown, and users may always choose another provider or continue without a proxy.
+
+| Provider | Notes | Link |
+|---|---|---|
+| RapidProxy | Residential proxy provider supporting this project | [Visit RapidProxy](https://www.rapidproxy.io/?ref=gosom) |
+| Swiftproxy | 90M+ residential IPs across 220+ locations with HTTP(S)/SOCKS5 support and non-expiring traffic. Use code `PROXY90` for 10% off | [Visit Swiftproxy](https://www.swiftproxy.net/?ref=gosom) |
+| Webshare | Proxy provider with HTTP and SOCKS5 support | [Visit Webshare](https://www.webshare.io/?referral_code=0q3l81eet8mp) |
+| BirdProxies | Residential and ISP proxy provider supporting this project | [Visit BirdProxies](https://birdproxies.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=gosom-google-maps-scraper) / [Discord](https://discord.com/invite/birdproxies) |
+| Proxidize | Mobile and residential proxies for Google Maps scraping, local SEO, lead generation, and data collection. Use code `gmaps20` for 20% off | [Visit Proxidize](https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=google_maps_scraper&utm_content=gosom) |
+| NodeMaven | The most efficient proxy provider for Web Scraping and Automation with the Highest Quality IP on the market. Codes: `MAPS35` for 35% off to Mobile and Residential Proxies, `MAPS40` for 40% off to ISP (Static) Proxies | [Visit NodeMaven](https://go.nodemaven.com/GoogleMapsScrapperseptember) |
+| Decodo | Proxy provider supporting this project | [Visit Decodo](https://visit.decodo.com/APVbbx) |
+| Evomi | Proxy provider supporting this project | [Visit Evomi](https://evomi.com?utm_source=github&utm_medium=banner&utm_campaign=gosom-maps) |
+
+## Practical Notes
+
+- Test with a small input file before running a large job.
+- Increase concurrency gradually.
+- If results become less reliable, reduce `-c` before assuming the proxy provider is the only issue.
+- Keep proxy URLs private. Do not commit credentials.
