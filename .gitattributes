@@ -1,0 +1,20 @@
+# Line endings, made explicit so they stop being a source of confusion.
+#
+# The tree was developed on Windows: 36 files under google-maps-scraper/ differ
+# from upstream only by CRLF. Committing that as-is would show those files as
+# modified for everyone else. So: text files are stored and checked out as LF,
+# except the two Windows entry scripts, which cmd.exe wants in CRLF.
+#
+# The .bat file must stay CRLF with no BOM -- cmd.exe's parser drifts otherwise
+# (see collector/collector/launcher.py). Enforcing it here keeps a "normalise
+# line endings" commit from quietly breaking the double-click entry.
+
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary
